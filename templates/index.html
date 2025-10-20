@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Strava Personal Records</title>
+
+  <!-- ✅ Mapbox CDN -->
+  <link
+    href="https://api.mapbox.com/mapbox-gl-js/v3.1.2/mapbox-gl.css"
+    rel="stylesheet"
+  />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.1.2/mapbox-gl.js"></script>
+
+  <!-- ✅ Polyline decoder -->
+  <script src="https://unpkg.com/@mapbox/polyline@1.1.1/src/polyline.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: #fafafa;
+    }
+
+    h1 {
+      margin: 20px 0;
+    }
+
+    #map {
+      width: 90%;
+      height: 500px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    table {
+      width: 90%;
+      border-collapse: collapse;
+      background: white;
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    }
+
+    th, td {
+      padding: 12px 15px;
+      border-bottom: 1px solid #eee;
+    }
+
+    th {
+      background-color: #f6f6f6;
+      font-weight: bold;
+    }
+
+    tr:hover {
+      background-color: #e9f5ff;
+      cursor: pointer;
+    }
+
+    td {
+      text-align: center;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>🏁 My Strava Personal Records</h1>
+
+  <div id="map"></div>
+
+  <table id="prTable">
+    <thead>
+      <tr>
+        <th>Segment</th>
+        <th>Best Time (s)</th>
+        <th>Date</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td colspan="3">Loading...</td></tr>
+    </tbody>
+  </table>
+
+  <script>
+    // 🔑 Replace with your Mapbox token (keep quotes)
+    mapboxgl.accessToken = 'pk.eyJ1Ijoic3BpY2V5eXkxNjciLCJhIjoiY21neWxtN3o3MDA5dDJtb2hqOTRqOGNxdyJ9._T_uOAoTwbXgASA2Kb39lg';
+
+    // Initialize Mapbox
+    const map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/streets-v12',
+      center: [-73.56, 45.5], // Default center (Montreal)
+      zoom: 11
+    });
+
+    let currentLayerId = null;
+
+    // ✅ Function: draw selected segment
+    function drawSegment(polylineStr) {
+      if (!polylineStr) {
+        alert('⚠️ No polyline available for this segment');
+        return;
+      }
+
+      const coords = polyline.decode(polylineStr).map(([lat, lon]) => [lon, lat]);
+
+      // Remove previous segment
+      if (currentLayerId && map.getLayer(currentLayerId)) {
+        map.removeLayer(currentLayerId);
+        map.removeSource(currentLayerId);
+      }
+
+      const id = 'segment-' + Date.now();
+      currentLayerId = id;
+
+      map.addSource(id, {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: coords }
+        }
+      });
+
+      map.addLayer({
+        id,
+        type: 'line',
+        source: id,
+        paint: {
+          'line-color': '#ff5500',
+          'line-width': 4
+        }
+      });
+
+      // Fit bounds
+      const bounds = coords.reduce(
+        (b, coord) => b.extend(coord),
+        new mapboxgl.LngLatBounds(coords[0], coords[0])
+      );
+      map.fitBounds(bounds, { padding: 50 });
+    }
+
+    // ✅ Function: load PR table
+    async function loadTable() {
+      const tbody = document.querySelector('#prTable tbody');
+      try {
+        const res = await fetch('/prs_table');
+        const data = await res.json();
+        tbody.innerHTML = '';
+
+        if (!data || data.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="3">No PR data found.</td></tr>';
+          return;
+        }
+
+        data.forEach(pr => {
+          const row = document.createElement('tr');
+          const date = pr.last_date ? pr.last_date.slice(0, 10) : '—';
+          const time = pr.best_time ? pr.best_time.toFixed(1) : '—';
+          row.innerHTML = `
+            <td>${pr.segment_name || 'Unnamed Segment'}</td>
+            <td>${time}</td>
+            <td>${date}</td>
+          `;
+
+          // Click to show polyline
+          row.addEventListener('click', () => drawSegment(pr.segment_polyline));
+          tbody.appendChild(row);
+        });
+      } catch (err) {
+        console.error('❌ Error loading PRs:', err);
+        tbody.innerHTML = '<tr><td colspan="3">Failed to load PRs.</td></tr>';
+      }
+    }
+
+    // Run once page loads
+    window.onload = loadTable;
+  </script>
+</body>
+</html>
