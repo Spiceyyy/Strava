@@ -1,11 +1,13 @@
-from fastapi import FastAPI
-from db import SessionLocal, Activity, SegmentEffort
+from fastapi import FastAPI, Depends
+from db import SessionLocal, Activity, SegmentEffort, get_db
 from strava_api import get_all_activities, get_activity_details
 from datetime import datetime
 import time
 from polyline import decode
 from fastapi.responses import JSONResponse, HTMLResponse
 from sqlalchemy import func
+from sqlalchemy.orm import Session
+
 
 
 app = FastAPI(title="Strava Database API")
@@ -147,43 +149,43 @@ def get_all_prs():
     session.close()
     return results
 
-@app.get("/prs_geojson")
-def get_all_pr_segments():
-    """
-    Returns all PR segment polylines (is_pr == True) as a GeoJSON FeatureCollection.
-    """
-    session = SessionLocal()
+# @app.get("/prs_geojson")
+# def get_all_pr_segments():
+#     """
+#     Returns all PR segment polylines (is_pr == True) as a GeoJSON FeatureCollection.
+#     """
+#     session = SessionLocal()
 
-    prs = (
-        session.query(SegmentEffort)
-        .filter(SegmentEffort.is_pr == True, SegmentEffort.segment_polyline != None)
-        .all()
-    )
+#     prs = (
+#         session.query(SegmentEffort)
+#         .filter(SegmentEffort.is_pr == True, SegmentEffort.segment_polyline != None)
+#         .all()
+#     )
 
-    features = []
-    for seg in prs:
-        try:
-            coords = decode(seg.segment_polyline)
-        except Exception:
-            continue
+#     features = []
+#     for seg in prs:
+#         try:
+#             coords = decode(seg.segment_polyline)
+#         except Exception:
+#             continue
 
-        features.append({
-            "type": "Feature",
-            "geometry": {
-                "type": "LineString",
-                "coordinates": [[lon, lat] for lat, lon in coords],
-            },
-            "properties": {
-                "segment_name": seg.segment_name,
-                "distance_km": round(seg.distance / 1000, 2) if seg.distance else None,
-                "avg_grade": seg.average_grade,
-                "elapsed_time_s": seg.elapsed_time,
-                "start_date": str(seg.start_date),
-            },
-        })
+#         features.append({
+#             "type": "Feature",
+#             "geometry": {
+#                 "type": "LineString",
+#                 "coordinates": [[lon, lat] for lat, lon in coords],
+#             },
+#             "properties": {
+#                 "segment_name": seg.segment_name,
+#                 "distance_km": round(seg.distance / 1000, 2) if seg.distance else None,
+#                 "avg_grade": seg.average_grade,
+#                 "elapsed_time_s": seg.elapsed_time,
+#                 "start_date": str(seg.start_date),
+#             },
+#         })
 
-    session.close()
-    return JSONResponse(content={"type": "FeatureCollection", "features": features})
+#     session.close()
+#     return JSONResponse(content={"type": "FeatureCollection", "features": features})
 
 @app.get("/prs_table")
 def prs_table():
@@ -202,3 +204,34 @@ def prs_table():
     )
     session.close()
     return [dict(row._mapping) for row in best_prs]
+
+@app.get("/segment/{segment_id}/progress")
+def get_segment_progress(segment_id: int, db: Session = Depends(get_db)):
+    """
+    Return all efforts for a given segment, sorted by date.
+    Each entry includes date, elapsed_time, and average_speed (if available).
+    """
+    efforts = (
+        db.query(SegmentEffort)
+        .filter(SegmentEffort.segment_id == segment_id)
+        .order_by(SegmentEffort.start_date)
+        .all()
+    )
+
+    if not efforts:
+        return {"message": f"No efforts found for segment {segment_id}", "data": []}
+
+    return {
+        "segment_id": segment_id,
+        "segment_name": efforts[0].segment_name if efforts[0].segment_name else None,
+        "data": [
+            {
+                "date": e.start_date.isoformat() if isinstance(e.start_date, datetime) else e.start_date,
+                "elapsed_time": e.elapsed_time,
+                # "distance": e.distance,
+                # "average_speed": (e.distance / e.elapsed_time) if e.elapsed_time and e.distance else None,
+                # "is_pr": e.is_pr,
+            }
+            for e in efforts
+        ],
+    }

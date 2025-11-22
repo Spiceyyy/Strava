@@ -1,6 +1,6 @@
 from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, ForeignKey, Boolean
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship, sessionmaker
+from sqlalchemy.orm import relationship, sessionmaker, declarative_base
 
 Base = declarative_base()
 
@@ -45,3 +45,10 @@ class SegmentEffort(Base):
 engine = create_engine("sqlite:///strava.db")
 SessionLocal = sessionmaker(bind=engine)
 Base.metadata.create_all(bind=engine)
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
